@@ -337,7 +337,7 @@ public class Mine implements ConfigurationSerializable {
 		for (int x = minX; x <= maxX; ++x) {
 			for (int y = minY; y <= maxY; ++y) {
 				for (int z = minZ; z <= maxZ; ++z) {
-					if (!fillMode || world.getBlockTypeIdAt(x, y, z) == 0) {
+					if (!fillMode || world.getBlockTypeIdAt(x, y, z) == 0 || world.getBlockTypeIdAt(x, y, z) == 8|| world.getBlockTypeIdAt(x, y, z) == 10) {
 						if(world.getBlockTypeIdAt(x, y, z) == 65 & ignoreLadders) {
 							continue;
 						}
