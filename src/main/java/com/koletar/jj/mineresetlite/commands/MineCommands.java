@@ -43,6 +43,7 @@ public class MineCommands {
 		sender.sendMessage(phrase("mineList", StringTools.buildList(plugin.mines, "&c", "&d, ")));
 	}
 	
+	@SuppressWarnings("deprecation")
 	@Command(aliases = { "pos1", "p1" }, description = "Change your first selection point", help = {
 			"Run this command to set your first selection point to the block you are looking at.",
 			"Use /mrl pos1 -feet to set your first point to the location you are standing on." }, usage = "(-feet)", permissions = {
@@ -64,6 +65,7 @@ public class MineCommands {
 		throw new InvalidCommandArgumentsException();
 	}
 	
+	@SuppressWarnings("deprecation")
 	@Command(aliases = { "pos2", "p2" }, description = "Change your first selection point", help = {
 			"Run this command to set your second selection point to the block you are looking at.",
 			"Use /mrl pos2 -feet to set your second point to the location you are standing on." }, usage = "(-feet)", permissions = {
@@ -210,6 +212,7 @@ public class MineCommands {
 		plugin.buffSave();
 	}
 	
+	@SuppressWarnings("deprecation")
 	@Command(aliases = { "info", "i" }, description = "List information about a mine, or the mine you are standing in.", usage = "[mine name]", permissions = { "mineresetlite.mine.info" }, min = 0, max = -1, onlyPlayers = false)
 	public void mineInfo(CommandSender sender, String[] args) {
 		Mine mine = null;
@@ -230,7 +233,7 @@ public class MineCommands {
 				boolean inside = false;
 				
 				for (Mine aMine : plugin.mines) {
-					if (aMine.isInside((Player) sender)) {
+					if (Mine.isInside((Player) sender)) {
 						mine = aMine;
 						inside = true;
 						continue;
@@ -249,7 +252,7 @@ public class MineCommands {
 		}
 		
 		sender.sendMessage(phrase("mineInfoName", mine.getName()));
-		sender.sendMessage(phrase("mineInfoWorld", mine.getWorld()));
+		sender.sendMessage(phrase("mineInfoWorld", Mine.getWorld()));
 		// Build composition list
 		StringBuilder csb = new StringBuilder();
 		for (Map.Entry<SerializableBlock, Double> entry : mine.getComposition().entrySet()) {
@@ -335,6 +338,7 @@ public class MineCommands {
 			return;
 		}
 		percentage = percentage / 100; // Make it a programmatic percentage
+		@SuppressWarnings("deprecation")
 		SerializableBlock block = new SerializableBlock(m.getId(), data);
 		Double oldPercentage = mines[0].getComposition().get(block);
 		double total = 0;
@@ -392,6 +396,7 @@ public class MineCommands {
 			}
 		}
 		// Does the mine contain this block?
+		@SuppressWarnings("deprecation")
 		SerializableBlock block = new SerializableBlock(m.getId(), data);
 		for (Map.Entry<SerializableBlock, Double> entry : mines[0].getComposition().entrySet()) {
 			if (entry.getKey().equals(block)) {
@@ -527,6 +532,7 @@ public class MineCommands {
 				plugin.buffSave();
 				return;
 			}
+			@SuppressWarnings("deprecation")
 			SerializableBlock block = new SerializableBlock(m.getId(), data);
 			mines[0].setSurface(block);
 			sender.sendMessage(phrase("surfaceBlockSet", mines[0]));
@@ -617,14 +623,14 @@ public class MineCommands {
 			return;
 		}
 		
-		mine.teleport((Player) sender);
+		Mine.teleport((Player) sender);
 	}
 	
 	@Command(aliases = { "settp", "stp" }, description = "Set the mine's reset teleportation point", help = {
 			"Run this command to set your the mine's telportation point to your location.",
 			"Use /mrl removetp <mine name> to remove the teleportation point."}, usage = "<mine name>", permissions = {
 			"mineresetlite.mine.settp"}, min = 1, max = -1, onlyPlayers = true)
-	public void setTPPos(CommandSender sender, String[] args) throws InvalidCommandArgumentsException {
+	public void setTPPos(CommandSender sender, String[] args) {
 		Player player = (Player) sender;
 		Mine[] mines = plugin.matchMines(StringTools.buildSpacedArgument(args));
 		if (mines.length > 1) {
@@ -644,7 +650,7 @@ public class MineCommands {
 			"Use /mrl settp -r to remove the teleportation point.",
 			"use /mrl settp x y z to set it to a specific point."}, usage = "<mine name>", permissions = {
 			"mineresetlite.mine.removetp"}, min = 1, max = -1, onlyPlayers = true)
-	public void removeTPPos(CommandSender sender, String[] args) throws InvalidCommandArgumentsException {
+	public void removeTPPos(CommandSender sender, String[] args) {
 		Player player = (Player) sender;
 		Mine[] mines = plugin.matchMines(StringTools.buildSpacedArgument(args));
 		if (mines.length > 1) {
@@ -654,8 +660,8 @@ public class MineCommands {
 			sender.sendMessage(phrase("noMinesMatched"));
 			return;
 		}
-		mines[0].setTpPos(new Location(player.getWorld(), 0, -1, 0));
-		sender.sendMessage(phrase("tpPosRemove", mines[0]));
+		mines[0].removeTpPos();
+		player.sendMessage(phrase("tpPosRemove", mines[0]));
 		return;
 	}
 }
