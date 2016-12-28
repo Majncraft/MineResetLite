@@ -80,7 +80,7 @@ public class Mine implements ConfigurationSerializable {
         }
         try {
             Map<String, Double> sComposition = (Map<String, Double>) me.get("composition");
-            composition = new HashMap<SerializableBlock, Double>();
+            composition = new HashMap<>();
             for (Map.Entry<String, Double> entry : sComposition.entrySet()) {
                 composition.put(new SerializableBlock(entry.getKey()), entry.getValue());
             }
@@ -333,8 +333,10 @@ public class Mine implements ConfigurationSerializable {
                 }
             }
         }
+
         // Actually reset
         Random rand = new Random();
+
         for (int x = minX; x <= maxX; ++x) {
             for (int y = minY; y <= maxY; ++y) {
                 for (int z = minZ; z <= maxZ; ++z) {
@@ -350,8 +352,7 @@ public class Mine implements ConfigurationSerializable {
                         double r = rand.nextDouble();
                         for (CompositionEntry ce : probabilityMap) {
                             if (r <= ce.getChance()) {
-                                world.getBlockAt(x, y, z).setTypeIdAndData(ce.getBlock().getBlockId(),
-                                        ce.getBlock().getData(), false);
+                                world.getBlockAt(x, y, z).setTypeIdAndData(ce.getBlock().getBlockId(), ce.getBlock().getData(), false);
                                 break;
                             }
                         }
@@ -409,16 +410,16 @@ public class Mine implements ConfigurationSerializable {
     }
 
     public static ArrayList<CompositionEntry> mapComposition(Map<SerializableBlock, Double> compositionIn) {
-        ArrayList<CompositionEntry> probabilityMap = new ArrayList<CompositionEntry>();
-        Map<SerializableBlock, Double> composition = new HashMap<SerializableBlock, Double>(compositionIn);
+        ArrayList<CompositionEntry> probabilityMap = new ArrayList<>();
+        Map<SerializableBlock, Double> composition = new HashMap<>(compositionIn);
         double max = 0;
         for (Map.Entry<SerializableBlock, Double> entry : composition.entrySet()) {
             max += entry.getValue();
         }
         // Pad the remaining percentages with air
-        if (max < 1) {
-            composition.put(new SerializableBlock(0), 1 - max);
-            max = 1;
+        if (max < 1d) {
+            composition.put(new SerializableBlock(0), 1d - max);
+            max = 1d;
         }
         double i = 0;
         for (Map.Entry<SerializableBlock, Double> entry : composition.entrySet()) {
@@ -427,24 +428,6 @@ public class Mine implements ConfigurationSerializable {
             probabilityMap.add(new CompositionEntry(entry.getKey(), i));
         }
         return probabilityMap;
-    }
-
-    public static class CompositionEntry {
-        private SerializableBlock block;
-        private double chance;
-
-        public CompositionEntry(SerializableBlock block, double chance) {
-            this.block = block;
-            this.chance = chance;
-        }
-
-        public SerializableBlock getBlock() {
-            return block;
-        }
-
-        public double getChance() {
-            return chance;
-        }
     }
 
 }
