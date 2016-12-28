@@ -421,10 +421,10 @@ public class MineCommands {
         }
         if (args[args.length - 1].equalsIgnoreCase("-s")) {
             // Silent reset
-            mines[0].reset();
+            mines[0].reset(null);
         } else {
             MineResetLite.broadcast(phrase("mineResetBroadcast", mines[0], sender), mines[0]);
-            mines[0].reset();
+            mines[0].reset(null);
         }
     }
 
