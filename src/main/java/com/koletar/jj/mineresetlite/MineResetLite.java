@@ -133,6 +133,10 @@ public class MineResetLite extends JavaPlugin {
         logger.info("MineResetLite disabled");
     }
 
+    public void doSync(Runnable runnable) {
+        getServer().getScheduler().runTask(this, runnable);
+    }
+
     public Material matchMaterial(String name) {
         // If anyone can think of a more elegant way to serve this function, let
         // me know. ~jj

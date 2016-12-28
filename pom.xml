@@ -43,6 +43,12 @@
             <type>jar</type>
             <scope>provided</scope>
         </dependency>
+        <dependency>
+            <groupId>com.boydti</groupId>
+            <artifactId>fawe</artifactId>
+            <version>3.5.0</version>
+            <scope>provided</scope>
+        </dependency>
     </dependencies>
 
     <repositories>

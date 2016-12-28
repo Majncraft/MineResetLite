@@ -1,5 +1,10 @@
 package com.koletar.jj.mineresetlite;
 
+import com.boydti.fawe.FaweAPI;
+import com.boydti.fawe.bukkit.wrapper.AsyncWorld;
+import com.boydti.fawe.object.FaweQueue;
+import com.boydti.fawe.util.TaskManager;
+
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -8,6 +13,8 @@ import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
 import org.bukkit.configuration.serialization.ConfigurationSerializable;
 import org.bukkit.entity.Player;
+import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.scheduler.BukkitTask;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -15,6 +22,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 
 /**
@@ -29,7 +37,7 @@ public class Mine implements ConfigurationSerializable {
     private int maxY;
     private int maxZ;
     private World world;
-    private Map<SerializableBlock, Double> composition;
+    private final Map<SerializableBlock, Double> composition;
     private int resetDelay;
     private List<Integer> resetWarnings;
     private String name;
@@ -51,7 +59,7 @@ public class Mine implements ConfigurationSerializable {
         this.maxZ = maxZ;
         this.name = name;
         this.world = world;
-        composition = new HashMap<>();
+        composition = new ConcurrentHashMap<>();
         resetWarnings = new LinkedList<>();
     }
 
@@ -80,7 +88,7 @@ public class Mine implements ConfigurationSerializable {
         }
         try {
             Map<String, Double> sComposition = (Map<String, Double>) me.get("composition");
-            composition = new HashMap<>();
+            composition = new ConcurrentHashMap<>();
             for (Map.Entry<String, Double> entry : sComposition.entrySet()) {
                 composition.put(new SerializableBlock(entry.getKey()), entry.getValue());
             }
@@ -310,56 +318,86 @@ public class Mine implements ConfigurationSerializable {
                 && (l.getBlockZ() >= minZ && l.getBlockZ() <= maxZ);
     }
 
-    public void reset() {
-        // Get probability map
-        List<CompositionEntry> probabilityMap = mapComposition(composition);
-        // Pull players out
-        for (Player p : Bukkit.getServer().getOnlinePlayers()) {
-            Location l = p.getLocation();
-            if (isInside(p)) {
-                if (tpY >= 0) { //If tpY is set to something (Not -1)
-                    p.teleport(getTpPos());
-                } else { //No tp position set (Teleport up)
-                    // make sure we find a safe location above the mine
-                    Location tp = new Location(world, l.getX(), maxY + 1, l.getZ());
-                    Block block = tp.getBlock();
+    public void reset(Runnable callback) {
+        BukkitTask task = new BukkitRunnable() {
+            int times = 0;
 
-                    // check to make sure we don't suffocate player
-                    if (block.getType() != Material.AIR || block.getRelative(BlockFace.UP).getType() != Material.AIR) {
-                        tp = new Location(world, l.getX(), l.getWorld().getHighestBlockYAt(l.getBlockX(), l.getBlockZ()),
-                                l.getZ());
+            @Override
+            public void run() {
+                times++;
+                // Continuously pull players out until the mine has been reset.
+                for (Player p : Bukkit.getServer().getOnlinePlayers()) {
+                    Location l = p.getLocation();
+                    if (isInside(p)) {
+                        if (tpY >= 0) { //If tpY is set to something (Not -1)
+                            p.teleport(getTpPos());
+                        } else { //No tp position set (Teleport up)
+                            // make sure we find a safe location above the mine
+                            Location tp = new Location(world, l.getX(), maxY + 1, l.getZ());
+                            Block block = tp.getBlock();
+
+                            // check to make sure we don't suffocate player
+                            if (block.getType() != Material.AIR || block.getRelative(BlockFace.UP).getType() != Material.AIR) {
+                                tp = new Location(world, l.getX(), l.getWorld().getHighestBlockYAt(l.getBlockX(), l.getBlockZ()),
+                                        l.getZ());
+                            }
+                            p.teleport(tp);
+                        }
                     }
-                    p.teleport(tp);
+                }
+
+                if (times >= 5) {
+                    // It's been 5 seconds, might as well stop now.
+                    cancel();
                 }
             }
-        }
+        }.runTaskTimer(MineResetLite.instance, 1L, 20L);
 
-        // Actually reset
-        Random rand = new Random();
+        TaskManager.IMP.async(() -> {
+            AsyncWorld w = AsyncWorld.wrap(world);
 
-        for (int x = minX; x <= maxX; ++x) {
-            for (int y = minY; y <= maxY; ++y) {
-                for (int z = minZ; z <= maxZ; ++z) {
-                    if (!fillMode || world.getBlockTypeIdAt(x, y, z) == 0) {
-                        if (world.getBlockTypeIdAt(x, y, z) == 65 & ignoreLadders) {
-                            continue;
-                        }
+            // Calculate probabilities
+            List<CompositionEntry> probabilityMap = mapComposition(composition);
 
-                        if (y == maxY && surface != null) {
-                            world.getBlockAt(x, y, z).setTypeIdAndData(surface.getBlockId(), surface.getData(), false);
-                            continue;
-                        }
-                        double r = rand.nextDouble();
-                        for (CompositionEntry ce : probabilityMap) {
-                            if (r <= ce.getChance()) {
-                                world.getBlockAt(x, y, z).setTypeIdAndData(ce.getBlock().getBlockId(), ce.getBlock().getData(), false);
-                                break;
+            // Actually reset
+            Random rand = new Random();
+
+            FaweQueue queue = FaweAPI.createQueue(world.getName(), true);
+
+            for (int x = minX; x <= maxX; ++x) {
+                for (int y = minY; y <= maxY; ++y) {
+                    for (int z = minZ; z <= maxZ; ++z) {
+                        if (!fillMode || w.getBlockTypeIdAt(x, y, z) == 0) {
+                            if (w.getBlockTypeIdAt(x, y, z) == 65 && ignoreLadders) {
+                                continue;
+                            }
+
+                            if (y == maxY && surface != null) {
+                                queue.setBlock(x, y, z, surface.getBlockId(), surface.getData());
+                                continue;
+                            }
+
+                            double r = rand.nextDouble();
+                            for (CompositionEntry ce : probabilityMap) {
+                                if (r <= ce.getChance()) {
+                                    queue.setBlock(x, y, z, ce.getBlock().getBlockId(), ce.getBlock().getData());
+                                    break;
+                                }
                             }
                         }
                     }
                 }
             }
-        }
+
+            queue.addNotifyTask(() -> MineResetLite.instance.doSync(() -> {
+                try {
+                    task.cancel();
+                } catch (Exception ignored) {}
+                if (callback != null) {
+                    callback.run();
+                }
+            }));
+        });
     }
 
     public void cron() {
@@ -373,7 +411,7 @@ public class Mine implements ConfigurationSerializable {
             if (!isSilent) {
                 MineResetLite.broadcast(Phrases.phrase("mineAutoResetBroadcast", this), this);
             }
-            reset();
+            reset(null);
             resetClock = resetDelay;
             return;
         }
