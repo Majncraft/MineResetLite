@@ -40,7 +40,7 @@ public class MineCommands {
 
     @Command(aliases = {"list", "l"}, description = "List the names of all Mines", permissions = {"mineresetlite.mine.list"}, help = {"List the names of all Mines currently created, across all worlds."}, min = 0, max = 0, onlyPlayers = false)
     public void listMines(CommandSender sender, String[] args) {
-        sender.sendMessage(phrase("mineList", StringTools.buildList(plugin.mines, "&c", "&d, ")));
+        sender.sendMessage(phrase("mineList", StringTools.buildMineList(plugin.mines, "&c", "&d, ")));
     }
 
     @Command(aliases = {"pos1", "p1"}, description = "Change your first selection point", help = {

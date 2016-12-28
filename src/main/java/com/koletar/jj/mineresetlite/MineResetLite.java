@@ -1,7 +1,6 @@
 package com.koletar.jj.mineresetlite;
 
 import com.koletar.jj.mineresetlite.commands.MineCommands;
-import com.koletar.jj.mineresetlite.commands.PluginCommands;
 import com.sk89q.worldedit.bukkit.WorldEditPlugin;
 
 import org.bukkit.Bukkit;
@@ -12,19 +11,13 @@ import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.configuration.serialization.ConfigurationSerialization;
 import org.bukkit.entity.Player;
-import org.bukkit.event.EventHandler;
-import org.bukkit.event.EventPriority;
 import org.bukkit.event.HandlerList;
-import org.bukkit.event.Listener;
-import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitScheduler;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.io.File;
-import java.io.FileFilter;
 import java.io.FileInputStream;
-import java.io.FilenameFilter;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedList;
@@ -32,8 +25,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Properties;
 import java.util.logging.Logger;
-
-import static com.koletar.jj.mineresetlite.Phrases.phrase;
 
 /**
  * @author jjkoletar
@@ -49,8 +40,6 @@ public class MineResetLite extends JavaPlugin {
     private int saveTaskId = -1;
     private int resetTaskId = -1;
     private BukkitTask updateTask = null;
-    private boolean needsUpdate;
-    private boolean isUpdateCritical;
 
     public void onEnable() {
         MineResetLite.instance = this;
@@ -67,7 +56,6 @@ public class MineResetLite extends JavaPlugin {
         commandManager = new CommandManager();
         commandManager.register(MineCommands.class, new MineCommands(this));
         commandManager.register(CommandManager.class, commandManager);
-        commandManager.register(PluginCommands.class, new PluginCommands(this));
 
         Locale locale = new Locale(Config.getLocale());
         Phrases.getInstance().initialize(locale);
@@ -266,12 +254,11 @@ public class MineResetLite extends JavaPlugin {
                 commandManager.callCommand("help", sender, helpArgs);
                 return true;
             }
+
             // Spoof args array to account for the initial subcommand
             // specification
             String[] spoofedArgs = new String[args.length - 1];
-            for (int i = 1; i < args.length; i++) {
-                spoofedArgs[i - 1] = args[i];
-            }
+            System.arraycopy(args, 1, spoofedArgs, 0, args.length - 1);
             commandManager.callCommand(args[0], sender, spoofedArgs);
             return true;
         }

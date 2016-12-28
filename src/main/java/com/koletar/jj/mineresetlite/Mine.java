@@ -350,12 +350,12 @@ public class Mine implements ConfigurationSerializable {
                     }
                 }
 
-                if (times >= 5) {
+                if (times >= 10) {
                     // It's been 5 seconds, might as well stop now.
                     cancel();
                 }
             }
-        }.runTaskTimer(MineResetLite.instance, 1L, 20L);
+        }.runTaskTimer(MineResetLite.instance, 1L, 10L);
 
         TaskManager.IMP.async(() -> {
             AsyncWorld w = AsyncWorld.wrap(world);

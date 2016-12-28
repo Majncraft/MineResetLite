@@ -1,6 +1,10 @@
 package com.koletar.jj.mineresetlite;
 
+import java.text.Collator;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.stream.Collectors;
 
 /**
  * @author jjkoletar
@@ -50,5 +54,11 @@ public class StringTools {
 
     public static String buildList(List<?> items, String prefix, String suffix) {
         return buildList(items.toArray(), prefix, suffix);
+    }
+
+    public static String buildMineList(List<Mine> items, String prefix, String suffix) {
+        List<String> names = new ArrayList<>(items.stream().map(Mine::getName).collect(Collectors.toList()));
+        names.sort(Collator.getInstance(Locale.US));
+        return buildList(names.toArray(new String[0]), prefix, suffix);
     }
 }

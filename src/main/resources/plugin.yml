@@ -1,11 +1,11 @@
 name: MineResetLite
 version: 0.5.0
 main: com.koletar.jj.mineresetlite.MineResetLite
-authors: [jjKoletar, VirtualByte, TWWSYesterday]
+authors: [jjKoletar, VirtualByte, TWWSYesterday, Luck]
 description: A lightweight solution for Mine management.
 depend: [FastAsyncWorldEdit]
 softdepend: [WorldEdit, Multiverse-Core, Multiworld]
 commands:
   mineresetlite:
-    aliases: [mrl, mr, mine, minereset]
+    aliases: [mrl, minereset]
     description: Manage mines.
