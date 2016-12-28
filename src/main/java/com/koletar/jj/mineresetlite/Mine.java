@@ -318,6 +318,10 @@ public class Mine implements ConfigurationSerializable {
                 && (l.getBlockZ() >= minZ && l.getBlockZ() <= maxZ);
     }
 
+    public void reset() {
+        reset(null);
+    }
+
     public void reset(Runnable callback) {
         BukkitTask task = new BukkitRunnable() {
             int times = 0;
@@ -397,6 +401,8 @@ public class Mine implements ConfigurationSerializable {
                     callback.run();
                 }
             }));
+
+            queue.enqueue();
         });
     }
 
