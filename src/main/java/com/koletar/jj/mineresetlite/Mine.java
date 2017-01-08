@@ -4,8 +4,10 @@ import com.boydti.fawe.FaweAPI;
 import com.boydti.fawe.bukkit.wrapper.AsyncWorld;
 import com.boydti.fawe.object.FaweQueue;
 import com.boydti.fawe.util.TaskManager;
+import com.google.common.collect.ImmutableList;
 
 import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
@@ -23,12 +25,47 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.logging.Logger;
 
 /**
  * @author jjkoletar
  */
 public class Mine implements ConfigurationSerializable {
+    private static final List<Direction> FACES = ImmutableList.copyOf(Direction.values());
+    private enum Direction {
+        POS_X, POS_Z, NEG_X, NEG_Z
+    }
+    private static Direction getRandomDir() {
+        return FACES.get(ThreadLocalRandom.current().nextInt(FACES.size()));
+    }
+
+    private static Location setFacing(Location loc, Location face) {
+        loc = loc.clone();
+
+        double dx = face.getX() - loc.getX();
+        double dy = face.getY() - loc.getY();
+        double dz = face.getZ() - loc.getZ();
+
+        if (dx != 0) {
+            if (dx < 0) {
+                loc.setYaw((float) (1.5 * Math.PI));
+            } else {
+                loc.setYaw((float) (0.5 * Math.PI));
+            }
+            loc.setYaw((float) loc.getYaw() - (float) Math.atan(dz / dx));
+        } else if (dz < 0) {
+            loc.setYaw((float) Math.PI);
+        }
+
+        double dxz = Math.sqrt(Math.pow(dx, 2) + Math.pow(dz, 2));
+        loc.setPitch((float) -Math.atan(dy / dxz));
+
+        loc.setYaw(-loc.getYaw() * 180f / (float) Math.PI);
+        loc.setPitch(loc.getPitch() * 180f / (float) Math.PI);
+
+        return loc;
+    }
 
     private int minX;
     private int minY;
@@ -323,47 +360,46 @@ public class Mine implements ConfigurationSerializable {
     }
 
     public void reset(Runnable callback) {
-        BukkitTask task = new BukkitRunnable() {
-            int times = 0;
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            if (isInside(player)) {
+                // Special reset location is configured
+                if (tpY >= 0) {
+                    player.teleport(getTpPos());
+                } else {
+                    // Teleport the player to the edge of the mine
+                    Location playerLoc = player.getLocation();
+                    Location topLoc = new Location(world, playerLoc.getX(), maxY + 2, playerLoc.getZ());
+                    Location tpLoc = topLoc.clone();
 
-            @Override
-            public void run() {
-                times++;
-                // Continuously pull players out until the mine has been reset.
-                for (Player p : Bukkit.getServer().getOnlinePlayers()) {
-                    Location l = p.getLocation();
-                    if (isInside(p)) {
-                        if (tpY >= 0) { //If tpY is set to something (Not -1)
-                            p.teleport(getTpPos());
-                        } else { //No tp position set (Teleport up)
-                            // make sure we find a safe location above the mine
-                            Location tp = new Location(world, l.getX(), maxY + 1, l.getZ());
-                            Block block = tp.getBlock();
-
-                            // check to make sure we don't suffocate player
-                            if (block.getType() != Material.AIR || block.getRelative(BlockFace.UP).getType() != Material.AIR) {
-                                tp = new Location(world, l.getX(), l.getWorld().getHighestBlockYAt(l.getBlockX(), l.getBlockZ()),
-                                        l.getZ());
-                            }
-                            p.teleport(tp);
-                        }
+                    switch (getRandomDir()) {
+                        case POS_X:
+                            tpLoc.setX(maxX + 2);
+                            break;
+                        case POS_Z:
+                            tpLoc.setZ(maxZ + 2);
+                            break;
+                        case NEG_X:
+                            tpLoc.setX(minX - 2);
+                            break;
+                        case NEG_Z:
+                            tpLoc.setZ(minZ - 2);
+                            break;
                     }
-                }
 
-                if (times >= 10) {
-                    // It's been 5 seconds, might as well stop now.
-                    cancel();
+                    tpLoc = setFacing(tpLoc, topLoc);
+                    player.teleport(tpLoc);
+                    player.sendMessage(ChatColor.AQUA + "You were teleported out of the mine while it resets.");
                 }
             }
-        }.runTaskTimer(MineResetLite.instance, 1L, 10L);
+        }
 
+        // Schedule reset task
         TaskManager.IMP.async(() -> {
             AsyncWorld w = AsyncWorld.wrap(world);
 
             // Calculate probabilities
             List<CompositionEntry> probabilityMap = mapComposition(composition);
 
-            // Actually reset
             Random rand = new Random();
 
             FaweQueue queue = FaweAPI.createQueue(world.getName(), true);
@@ -393,14 +429,9 @@ public class Mine implements ConfigurationSerializable {
                 }
             }
 
-            queue.addNotifyTask(() -> MineResetLite.instance.doSync(() -> {
-                try {
-                    task.cancel();
-                } catch (Exception ignored) {}
-                if (callback != null) {
-                    callback.run();
-                }
-            }));
+            if (callback != null) {
+                queue.addNotifyTask(() -> MineResetLite.instance.doSync(callback));
+            }
 
             queue.enqueue();
         });
