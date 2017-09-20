@@ -1,14 +1,13 @@
 package com.koletar.jj.mineresetlite;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
-import java.util.logging.Logger;
+import com.boydti.fawe.FaweAPI;
+import com.boydti.fawe.bukkit.wrapper.AsyncWorld;
+import com.boydti.fawe.object.FaweQueue;
+import com.boydti.fawe.util.TaskManager;
+import com.google.common.collect.ImmutableList;
 
 import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
@@ -16,437 +15,497 @@ import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
 import org.bukkit.configuration.serialization.ConfigurationSerializable;
 import org.bukkit.entity.Player;
+import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.scheduler.BukkitTask;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.logging.Logger;
 
 /**
  * @author jjkoletar
  */
 public class Mine implements ConfigurationSerializable {
-	private int								minX;
-	private int								minY;
-	private int								minZ;
-	private int								maxX;
-	private int								maxY;
-	private int								maxZ;
-	private World							world;
-	private Map<SerializableBlock, Double>	composition;
-	private int								resetDelay;
-	private List<Integer>					resetWarnings;
-	private String							name;
-	private SerializableBlock				surface;
-	private boolean							fillMode;
-	private int								resetClock;
-	private boolean							isSilent;
-	private boolean							ignoreLadders = false;
-	private int								tpX = 0;
-	private int								tpY = -1;
-	private int								tpZ = 0;
+    private static final List<Direction> FACES = ImmutableList.copyOf(Direction.values());
+    private enum Direction {
+        POS_X, POS_Z, NEG_X, NEG_Z
+    }
+    private static Direction getRandomDir() {
+        return FACES.get(ThreadLocalRandom.current().nextInt(FACES.size()));
+    }
 
-	public Mine(int minX, int minY, int minZ, int maxX, int maxY, int maxZ, String name, World world) {
-		this.minX = minX;
-		this.minY = minY;
-		this.minZ = minZ;
-		this.maxX = maxX;
-		this.maxY = maxY;
-		this.maxZ = maxZ;
-		this.name = name;
-		this.world = world;
-		composition = new HashMap<SerializableBlock, Double>();
-		resetWarnings = new LinkedList<Integer>();
-	}
+    private static Location setFacing(Location loc, Location face) {
+        loc = loc.clone();
 
-	public Mine(Map<String, Object> me) {
-		try {
-			minX = (Integer) me.get("minX");
-			minY = (Integer) me.get("minY");
-			minZ = (Integer) me.get("minZ");
-			maxX = (Integer) me.get("maxX");
-			maxY = (Integer) me.get("maxY");
-			maxZ = (Integer) me.get("maxZ");
-		} catch (Throwable t) {
-			throw new IllegalArgumentException("Error deserializing coordinate pairs");
-		}
-		try {
-			world = Bukkit.getServer().getWorld((String) me.get("world"));
-		} catch (Throwable t) {
-			throw new IllegalArgumentException("Error finding world");
-		}
-		if (world == null) {
-			Logger l = Bukkit.getLogger();
-			l.severe("[MineResetLite] Unable to find a world! Please include these logger lines along with the stack trace when reporting this bug!");
-			l.severe("[MineResetLite] Attempted to load world named: " + me.get("world"));
-			l.severe("[MineResetLite] Worlds listed: " + StringTools.buildList(Bukkit.getWorlds(), "", ", "));
-			throw new IllegalArgumentException("World was null!");
-		}
-		try {
-			Map<String, Double> sComposition = (Map<String, Double>) me.get("composition");
-			composition = new HashMap<SerializableBlock, Double>();
-			for (Map.Entry<String, Double> entry : sComposition.entrySet()) {
-				composition.put(new SerializableBlock(entry.getKey()), entry.getValue());
-			}
-		} catch (Throwable t) {
-			throw new IllegalArgumentException("Error deserializing composition");
-		}
-		name = (String) me.get("name");
-		resetDelay = (Integer) me.get("resetDelay");
-		List<String> warnings = (List<String>) me.get("resetWarnings");
-		resetWarnings = new LinkedList<Integer>();
-		for (String warning : warnings) {
-			try {
-				resetWarnings.add(Integer.valueOf(warning));
-			} catch (NumberFormatException nfe) {
-				throw new IllegalArgumentException("Non-numeric reset warnings supplied");
-			}
-		}
-		if (me.containsKey("surface")) {
-			if (!me.get("surface").equals("")) {
-				surface = new SerializableBlock((String) me.get("surface"));
-			}
-		}
-		if (me.containsKey("fillMode")) {
-			fillMode = (Boolean) me.get("fillMode");
-		}
-		if (me.containsKey("resetClock")) {
-			resetClock = (Integer) me.get("resetClock");
-		}
-		// Compat for the clock
-		if (resetDelay > 0 && resetClock == 0) {
-			resetClock = resetDelay;
-		}
-		if (me.containsKey("isSilent")) {
-			isSilent = (Boolean) me.get("isSilent");
-		}
-		if (me.containsKey("ignoreLadders")) {
-			ignoreLadders = (Boolean) me.get("ignoreLadders");
-		}
-		if (me.containsKey("tpY")){ //Should contain all three if it contains this one
-			tpX = (Integer) me.get("tpX");
-			tpY = (Integer) me.get("tpY");
-			tpZ = (Integer) me.get("tpZ");
-		}
-	}
+        double dx = face.getX() - loc.getX();
+        double dy = face.getY() - loc.getY();
+        double dz = face.getZ() - loc.getZ();
 
-	public Map<String, Object> serialize() {
-		Map<String, Object> me = new HashMap<String, Object>();
-		me.put("minX", minX);
-		me.put("minY", minY);
-		me.put("minZ", minZ);
-		me.put("maxX", maxX);
-		me.put("maxY", maxY);
-		me.put("maxZ", maxZ);
-		me.put("world", world.getName());
-		// Make string form of composition
-		Map<String, Double> sComposition = new HashMap<String, Double>();
-		for (Map.Entry<SerializableBlock, Double> entry : composition.entrySet()) {
-			sComposition.put(entry.getKey().toString(), entry.getValue());
-		}
-		me.put("composition", sComposition);
-		me.put("name", name);
-		me.put("resetDelay", resetDelay);
-		List<String> warnings = new LinkedList<String>();
-		for (Integer warning : resetWarnings) {
-			warnings.add(warning.toString());
-		}
-		me.put("resetWarnings", warnings);
-		if (surface != null) {
-			me.put("surface", surface.toString());
-		} else {
-			me.put("surface", "");
-		}
-		me.put("fillMode", fillMode);
-		me.put("resetClock", resetClock);
-		me.put("isSilent", isSilent);
-		me.put("ignoreLadders", ignoreLadders);
-		me.put("tpX", tpX);
-		me.put("tpY", tpY);
-		me.put("tpZ", tpZ);
-		return me;
-	}
+        if (dx != 0) {
+            if (dx < 0) {
+                loc.setYaw((float) (1.5 * Math.PI));
+            } else {
+                loc.setYaw((float) (0.5 * Math.PI));
+            }
+            loc.setYaw((float) loc.getYaw() - (float) Math.atan(dz / dx));
+        } else if (dz < 0) {
+            loc.setYaw((float) Math.PI);
+        }
 
-	public boolean getFillMode() {
-		return fillMode;
-	}
+        double dxz = Math.sqrt(Math.pow(dx, 2) + Math.pow(dz, 2));
+        loc.setPitch((float) -Math.atan(dy / dxz));
 
-	public void setFillMode(boolean fillMode) {
-		this.fillMode = fillMode;
-	}
+        loc.setYaw(-loc.getYaw() * 180f / (float) Math.PI);
+        loc.setPitch(loc.getPitch() * 180f / (float) Math.PI);
 
-	public List<Integer> getResetWarnings() {
-		return resetWarnings;
-	}
+        return loc;
+    }
 
-	public void setResetWarnings(List<Integer> warnings) {
-		resetWarnings = warnings;
-	}
+    private int minX;
+    private int minY;
+    private int minZ;
+    private int maxX;
+    private int maxY;
+    private int maxZ;
+    private World world;
+    private final Map<SerializableBlock, Double> composition;
+    private int resetDelay;
+    private List<Integer> resetWarnings;
+    private String name;
+    private SerializableBlock surface;
+    private boolean fillMode;
+    private int resetClock;
+    private boolean isSilent;
+    private boolean ignoreLadders = false;
+    private int tpX = 0;
+    private int tpY = -1;
+    private int tpZ = 0;
 
-	public int getResetDelay() {
-		return resetDelay;
-	}
+    public Mine(int minX, int minY, int minZ, int maxX, int maxY, int maxZ, String name, World world) {
+        this.minX = minX;
+        this.minY = minY;
+        this.minZ = minZ;
+        this.maxX = maxX;
+        this.maxY = maxY;
+        this.maxZ = maxZ;
+        this.name = name;
+        this.world = world;
+        composition = new ConcurrentHashMap<>();
+        resetWarnings = new LinkedList<>();
+    }
 
-	public void setResetDelay(int minutes) {
-		resetDelay = minutes;
-		resetClock = minutes;
-	}
+    public Mine(Map<String, Object> me) {
+        try {
+            minX = (Integer) me.get("minX");
+            minY = (Integer) me.get("minY");
+            minZ = (Integer) me.get("minZ");
+            maxX = (Integer) me.get("maxX");
+            maxY = (Integer) me.get("maxY");
+            maxZ = (Integer) me.get("maxZ");
+        } catch (Throwable t) {
+            throw new IllegalArgumentException("Error deserializing coordinate pairs");
+        }
+        try {
+            world = Bukkit.getServer().getWorld((String) me.get("world"));
+        } catch (Throwable t) {
+            throw new IllegalArgumentException("Error finding world");
+        }
+        if (world == null) {
+            Logger l = Bukkit.getLogger();
+            l.severe("[MineResetLite] Unable to find a world! Please include these logger lines along with the stack trace when reporting this bug!");
+            l.severe("[MineResetLite] Attempted to load world named: " + me.get("world"));
+            l.severe("[MineResetLite] Worlds listed: " + StringTools.buildList(Bukkit.getWorlds(), "", ", "));
+            throw new IllegalArgumentException("World was null!");
+        }
+        try {
+            Map<String, Double> sComposition = (Map<String, Double>) me.get("composition");
+            composition = new ConcurrentHashMap<>();
+            for (Map.Entry<String, Double> entry : sComposition.entrySet()) {
+                composition.put(new SerializableBlock(entry.getKey()), entry.getValue());
+            }
+        } catch (Throwable t) {
+            throw new IllegalArgumentException("Error deserializing composition");
+        }
+        name = (String) me.get("name");
+        resetDelay = (Integer) me.get("resetDelay");
+        List<String> warnings = (List<String>) me.get("resetWarnings");
+        resetWarnings = new LinkedList<Integer>();
+        for (String warning : warnings) {
+            try {
+                resetWarnings.add(Integer.valueOf(warning));
+            } catch (NumberFormatException nfe) {
+                throw new IllegalArgumentException("Non-numeric reset warnings supplied");
+            }
+        }
+        if (me.containsKey("surface")) {
+            if (!me.get("surface").equals("")) {
+                surface = new SerializableBlock((String) me.get("surface"));
+            }
+        }
+        if (me.containsKey("fillMode")) {
+            fillMode = (Boolean) me.get("fillMode");
+        }
+        if (me.containsKey("resetClock")) {
+            resetClock = (Integer) me.get("resetClock");
+        }
+        // Compat for the clock
+        if (resetDelay > 0 && resetClock == 0) {
+            resetClock = resetDelay;
+        }
+        if (me.containsKey("isSilent")) {
+            isSilent = (Boolean) me.get("isSilent");
+        }
+        if (me.containsKey("ignoreLadders")) {
+            ignoreLadders = (Boolean) me.get("ignoreLadders");
+        }
+        if (me.containsKey("tpY")) { //Should contain all three if it contains this one
+            tpX = (Integer) me.get("tpX");
+            tpY = (Integer) me.get("tpY");
+            tpZ = (Integer) me.get("tpZ");
+        }
+    }
 
-	/**
-	 * Return the length of time until the next automatic reset. The actual
-	 * length of time is anywhere between n and n-1 minutes.
-	 *
-	 * @return clock ticks left until reset
-	 */
-	public int getTimeUntilReset() {
-		return resetClock;
-	}
+    public Map<String, Object> serialize() {
+        Map<String, Object> me = new HashMap<String, Object>();
+        me.put("minX", minX);
+        me.put("minY", minY);
+        me.put("minZ", minZ);
+        me.put("maxX", maxX);
+        me.put("maxY", maxY);
+        me.put("maxZ", maxZ);
+        me.put("world", world.getName());
+        // Make string form of composition
+        Map<String, Double> sComposition = new HashMap<String, Double>();
+        for (Map.Entry<SerializableBlock, Double> entry : composition.entrySet()) {
+            sComposition.put(entry.getKey().toString(), entry.getValue());
+        }
+        me.put("composition", sComposition);
+        me.put("name", name);
+        me.put("resetDelay", resetDelay);
+        List<String> warnings = new LinkedList<String>();
+        for (Integer warning : resetWarnings) {
+            warnings.add(warning.toString());
+        }
+        me.put("resetWarnings", warnings);
+        if (surface != null) {
+            me.put("surface", surface.toString());
+        } else {
+            me.put("surface", "");
+        }
+        me.put("fillMode", fillMode);
+        me.put("resetClock", resetClock);
+        me.put("isSilent", isSilent);
+        me.put("ignoreLadders", ignoreLadders);
+        me.put("tpX", tpX);
+        me.put("tpY", tpY);
+        me.put("tpZ", tpZ);
+        return me;
+    }
 
-	public SerializableBlock getSurface() {
-		return surface;
-	}
+    public boolean getFillMode() {
+        return fillMode;
+    }
 
-	public void setSurface(SerializableBlock surface) {
-		this.surface = surface;
-	}
+    public void setFillMode(boolean fillMode) {
+        this.fillMode = fillMode;
+    }
 
-	public World getWorld() {
-		return world;
-	}
+    public List<Integer> getResetWarnings() {
+        return resetWarnings;
+    }
 
-	public String getName() {
-		return name;
-	}
+    public void setResetWarnings(List<Integer> warnings) {
+        resetWarnings = warnings;
+    }
 
-	public Map<SerializableBlock, Double> getComposition() {
-		return composition;
-	}
+    public int getResetDelay() {
+        return resetDelay;
+    }
 
-	public double getCompositionTotal() {
-		double total = 0;
-		for (Double d : composition.values()) {
-			total += d;
-		}
-		return total;
-	}
+    public void setResetDelay(int minutes) {
+        resetDelay = minutes;
+        resetClock = minutes;
+    }
 
-	public int getMinX() {
-		return minX;
-	}
+    /**
+     * Return the length of time until the next automatic reset. The actual
+     * length of time is anywhere between n and n-1 minutes.
+     *
+     * @return clock ticks left until reset
+     */
+    public int getTimeUntilReset() {
+        return resetClock;
+    }
 
-	public void setMinX(int minX) {
-		this.minX = minX;
-	}
+    public SerializableBlock getSurface() {
+        return surface;
+    }
 
-	public int getMinY() {
-		return minY;
-	}
+    public void setSurface(SerializableBlock surface) {
+        this.surface = surface;
+    }
 
-	public void setMinY(int minY) {
-		this.minY = minY;
-	}
+    public World getWorld() {
+        return world;
+    }
 
-	public int getMinZ() {
-		return minZ;
-	}
+    public String getName() {
+        return name;
+    }
 
-	public void setMinZ(int minZ) {
-		this.minZ = minZ;
-	}
+    public Map<SerializableBlock, Double> getComposition() {
+        return composition;
+    }
 
-	public int getMaxX() {
-		return maxX;
-	}
+    public double getCompositionTotal() {
+        double total = 0;
+        for (Double d : composition.values()) {
+            total += d;
+        }
+        return total;
+    }
 
-	public void setMaxX(int maxX) {
-		this.maxX = maxX;
-	}
+    public int getMinX() {
+        return minX;
+    }
 
-	public int getMaxY() {
-		return maxY;
-	}
+    public void setMinX(int minX) {
+        this.minX = minX;
+    }
 
-	public void setMaxY(int maxY) {
-		this.maxY = maxY;
-	}
+    public int getMinY() {
+        return minY;
+    }
 
-	public int getMaxZ() {
-		return maxZ;
-	}
+    public void setMinY(int minY) {
+        this.minY = minY;
+    }
 
-	public void setMaxZ(int maxZ) {
-		this.maxZ = maxZ;
-	}
+    public int getMinZ() {
+        return minZ;
+    }
 
-	public boolean isSilent() {
-		return isSilent;
-	}
+    public void setMinZ(int minZ) {
+        this.minZ = minZ;
+    }
 
-	public void setSilence(boolean isSilent) {
-		this.isSilent = isSilent;
-	}
+    public int getMaxX() {
+        return maxX;
+    }
 
-	public boolean isIgnoreLadders() {
-		return ignoreLadders;
-	}
+    public void setMaxX(int maxX) {
+        this.maxX = maxX;
+    }
 
-	public void setIgnoreLadders(boolean ignoreLadders) {
-		this.ignoreLadders = ignoreLadders;
-	}
+    public int getMaxY() {
+        return maxY;
+    }
 
-	public void setTpPos(Location l) {
-		tpX = l.getBlockX();
-		tpY = l.getBlockY();
-		tpZ = l.getBlockZ();
-	}
+    public void setMaxY(int maxY) {
+        this.maxY = maxY;
+    }
 
-	public Location getTpPos() {
-		return new Location(getWorld(), tpX, tpY, tpZ);
-	}
+    public int getMaxZ() {
+        return maxZ;
+    }
 
-	public boolean isInside(Player p) {
-		return isInside(p.getLocation());
-	}
+    public void setMaxZ(int maxZ) {
+        this.maxZ = maxZ;
+    }
 
-	public boolean isInside(Location l) {
-		return (l.getWorld().getName().equals(getWorld().getName()))
-				&& (l.getBlockX() >= minX && l.getBlockX() <= maxX) && (l.getBlockY() >= minY && l.getBlockY() <= maxY)
-				&& (l.getBlockZ() >= minZ && l.getBlockZ() <= maxZ);
-	}
+    public boolean isSilent() {
+        return isSilent;
+    }
 
-	public void reset() {
-		// Get probability map
-		List<CompositionEntry> probabilityMap = mapComposition(composition);
-		// Pull players out
-		for (Player p : Bukkit.getServer().getOnlinePlayers()) {
-			Location l = p.getLocation();
-			if (isInside(p)) {
-				if (tpY >= 0) { //If tpY is set to something (Not -1)
-					p.teleport(getTpPos());
-				} else { //No tp position set (Teleport up)
-					// make sure we find a safe location above the mine
-					Location tp = new Location(world, l.getX(), maxY + 1, l.getZ());
-					Block block = tp.getBlock();
+    public void setSilence(boolean isSilent) {
+        this.isSilent = isSilent;
+    }
 
-					// check to make sure we don't suffocate player
-					if (block.getType() != Material.AIR || block.getRelative(BlockFace.UP).getType() != Material.AIR) {
-						tp = new Location(world, l.getX(), l.getWorld().getHighestBlockYAt(l.getBlockX(), l.getBlockZ()),
-								l.getZ());
-					}
-					p.teleport(tp);
-				}
-			}
-		}
-		// Actually reset
-		Random rand = new Random();
-		for (int x = minX; x <= maxX; ++x) {
-			for (int y = minY; y <= maxY; ++y) {
-				for (int z = minZ; z <= maxZ; ++z) {
-					if (!fillMode || 
+    public boolean isIgnoreLadders() {
+        return ignoreLadders;
+    }
+
+    public void setIgnoreLadders(boolean ignoreLadders) {
+        this.ignoreLadders = ignoreLadders;
+    }
+
+    public Location getTpPos() {
+        return new Location(getWorld(), tpX, tpY, tpZ);
+    }
+
+    public void setTpPos(Location l) {
+        tpX = l.getBlockX();
+        tpY = l.getBlockY();
+        tpZ = l.getBlockZ();
+    }
+
+    public boolean isInside(Player p) {
+        return isInside(p.getLocation());
+    }
+
+    public boolean isInside(Location l) {
+        return (l.getWorld().getName().equals(getWorld().getName()))
+                && (l.getBlockX() >= minX && l.getBlockX() <= maxX) && (l.getBlockY() >= minY && l.getBlockY() <= maxY)
+                && (l.getBlockZ() >= minZ && l.getBlockZ() <= maxZ);
+    }
+
+    public void reset() {
+        reset(null);
+    }
+
+    public void reset(Runnable callback) {
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            if (isInside(player)) {
+                // Special reset location is configured
+                if (tpY >= 0) {
+                    player.teleport(getTpPos());
+                } else {
+                    // Teleport the player to the edge of the mine
+                    Location playerLoc = player.getLocation();
+                    Location topLoc = new Location(world, playerLoc.getX(), maxY + 2, playerLoc.getZ());
+                    Location tpLoc = topLoc.clone();
+
+                    switch (getRandomDir()) {
+                        case POS_X:
+                            tpLoc.setX(maxX + 2);
+                            break;
+                        case POS_Z:
+                            tpLoc.setZ(maxZ + 2);
+                            break;
+                        case NEG_X:
+                            tpLoc.setX(minX - 2);
+                            break;
+                        case NEG_Z:
+                            tpLoc.setZ(minZ - 2);
+                            break;
+                    }
+
+                    tpLoc = setFacing(tpLoc, topLoc);
+                    player.teleport(tpLoc);
+                    player.sendMessage(ChatColor.AQUA + "You were teleported out of the mine while it resets.");
+                }
+            }
+        }
+
+        // Schedule reset task
+        TaskManager.IMP.async(() -> {
+            AsyncWorld w = AsyncWorld.wrap(world);
+
+            // Calculate probabilities
+            List<CompositionEntry> probabilityMap = mapComposition(composition);
+
+            Random rand = new Random();
+
+            FaweQueue queue = FaweAPI.createQueue(world.getName(), true);
+
+            for (int x = minX; x <= maxX; ++x) {
+                for (int y = minY; y <= maxY; ++y) {
+                    for (int z = minZ; z <= maxZ; ++z) {
+                        if (!fillMode || 
           world.getBlockAt(x, y, z).getType()==Material.AIR 
           || world.getBlockAt(x, y, z).getType()==Material.WATER
           || (world.getBlockAt(x, y,z ).getType()==Material.STATIONARY_WATER && world.getBlockAt(x, y, z).getState().getRawData()>0)) {
-						if(world.getBlockTypeIdAt(x, y, z) == 65 & ignoreLadders) {
-							continue;
-						}
+                            if (w.getBlockTypeIdAt(x, y, z) == 65 && ignoreLadders) {
+                                continue;
+                            }
 
-						if (y == maxY && surface != null) {
-							world.getBlockAt(x, y, z).setTypeIdAndData(surface.getBlockId(), surface.getData(), false);
-							continue;
-						}
-						double r = rand.nextDouble();
-						for (CompositionEntry ce : probabilityMap) {
-							if (r <= ce.getChance()) {
-								world.getBlockAt(x, y, z).setTypeIdAndData(ce.getBlock().getBlockId(),
-										ce.getBlock().getData(), false);
-								break;
-							}
-						}
-					}
-				}
-			}
-		}
-	}
+                            if (y == maxY && surface != null) {
+                                queue.setBlock(x, y, z, surface.getBlockId(), surface.getData());
+                                continue;
+                            }
 
-	public void cron() {
-		if (resetDelay == 0) {
-			return;
-		}
-		if (resetClock > 0) {
-			resetClock--; // Tick down to the reset
-		}
-		if (resetClock == 0) {
-			if (!isSilent) {
-				MineResetLite.broadcast(Phrases.phrase("mineAutoResetBroadcast", this), this);
-			}
-			reset();
-			resetClock = resetDelay;
-			return;
-		}
-		for (Integer warning : resetWarnings) {
-			if (warning == resetClock) {
-				MineResetLite.broadcast(Phrases.phrase("mineWarningBroadcast", this, warning), this);
-			}
-		}
-	}
+                            double r = rand.nextDouble();
+                            for (CompositionEntry ce : probabilityMap) {
+                                if (r <= ce.getChance()) {
+                                    queue.setBlock(x, y, z, ce.getBlock().getBlockId(), ce.getBlock().getData());
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
-	public static class CompositionEntry {
-		private SerializableBlock	block;
-		private double				chance;
+            if (callback != null) {
+                queue.addNotifyTask(() -> MineResetLite.instance.doSync(callback));
+            }
 
-		public CompositionEntry(SerializableBlock block, double chance) {
-			this.block = block;
-			this.chance = chance;
-		}
+            queue.enqueue();
+        });
+    }
 
-		public SerializableBlock getBlock() {
-			return block;
-		}
+    public void cron() {
+        if (resetDelay == 0) {
+            return;
+        }
+        if (resetClock > 0) {
+            resetClock--; // Tick down to the reset
+        }
+        if (resetClock == 0) {
+            if (!isSilent) {
+                MineResetLite.broadcast(Phrases.phrase("mineAutoResetBroadcast", this), this);
+            }
+            reset(null);
+            resetClock = resetDelay;
+            return;
+        }
+        for (Integer warning : resetWarnings) {
+            if (warning == resetClock) {
+                MineResetLite.broadcast(Phrases.phrase("mineWarningBroadcast", this, warning), this);
+            }
+        }
+    }
 
-		public double getChance() {
-			return chance;
-		}
-	}
+    public void teleport(Player player) {
+        Location max = new Location(world, Math.max(this.maxX, this.minX), this.maxY, Math.max(this.maxZ, this.minZ));
+        Location min = new Location(world, Math.min(this.maxX, this.minX), this.minY, Math.min(this.maxZ, this.minZ));
 
-	public static ArrayList<CompositionEntry> mapComposition(Map<SerializableBlock, Double> compositionIn) {
-		ArrayList<CompositionEntry> probabilityMap = new ArrayList<CompositionEntry>();
-		Map<SerializableBlock, Double> composition = new HashMap<SerializableBlock, Double>(compositionIn);
-		double max = 0;
-		for (Map.Entry<SerializableBlock, Double> entry : composition.entrySet()) {
-			max += entry.getValue().doubleValue();
-		}
-		// Pad the remaining percentages with air
-		if (max < 1) {
-			composition.put(new SerializableBlock(0), 1 - max);
-			max = 1;
-		}
-		double i = 0;
-		for (Map.Entry<SerializableBlock, Double> entry : composition.entrySet()) {
-			double v = entry.getValue().doubleValue() / max;
-			i += v;
-			probabilityMap.add(new CompositionEntry(entry.getKey(), i));
-		}
-		return probabilityMap;
-	}
+        Location location = max.add(min).multiply(0.5);
+        Block block = location.getBlock();
 
-	public void teleport(Player player) {
-		Location max = new Location(world, Math.max(this.maxX, this.minX), this.maxY, Math.max(this.maxZ, this.minZ));
-		Location min = new Location(world, Math.min(this.maxX, this.minX), this.minY, Math.min(this.maxZ, this.minZ));
+        if (block.getType() != Material.AIR || block.getRelative(BlockFace.UP).getType() != Material.AIR) {
+            location = new Location(world, location.getX(), location.getWorld().getHighestBlockYAt(
+                    location.getBlockX(), location.getBlockZ()), location.getZ());
+        }
 
-		Location location = max.add(min).multiply(0.5);
-		Block block = location.getBlock();
+        player.teleport(location);
+    }
 
-		if (block.getType() != Material.AIR || block.getRelative(BlockFace.UP).getType() != Material.AIR) {
-			location = new Location(world, location.getX(), location.getWorld().getHighestBlockYAt(
-					location.getBlockX(), location.getBlockZ()), location.getZ());
-		}
+    public void redefine(int minX, int minY, int minZ, int maxX, int maxY, int maxZ, World world) {
+        this.minX = minX;
+        this.minY = minY;
+        this.minZ = minZ;
+        this.maxX = maxX;
+        this.maxY = maxY;
+        this.maxZ = maxZ;
+        this.world = world;
+    }
 
-		player.teleport(location);
-	}
-
-	public void redefine(int minX, int minY, int minZ, int maxX, int maxY, int maxZ, World world) {
-		this.minX = minX;
-		this.minY = minY;
-		this.minZ = minZ;
-		this.maxX = maxX;
-		this.maxY = maxY;
-		this.maxZ = maxZ;
-		this.world = world;
-	}
+    public static ArrayList<CompositionEntry> mapComposition(Map<SerializableBlock, Double> compositionIn) {
+        ArrayList<CompositionEntry> probabilityMap = new ArrayList<>();
+        Map<SerializableBlock, Double> composition = new HashMap<>(compositionIn);
+        double max = 0;
+        for (Map.Entry<SerializableBlock, Double> entry : composition.entrySet()) {
+            max += entry.getValue();
+        }
+        // Pad the remaining percentages with air
+        if (max < 1d) {
+            composition.put(new SerializableBlock(0), 1d - max);
+            max = 1d;
+        }
+        double i = 0;
+        for (Map.Entry<SerializableBlock, Double> entry : composition.entrySet()) {
+            double v = entry.getValue() / max;
+            i += v;
+            probabilityMap.add(new CompositionEntry(entry.getKey(), i));
+        }
+        return probabilityMap;
+    }
 
 }
